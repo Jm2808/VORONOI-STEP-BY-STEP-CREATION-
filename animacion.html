@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>¿Cómo se forma un diagrama de Voronoi? — Paso a paso</title>
+<style>
+  :root{--bg:#faf9f6;--card:#ffffff;--text:#1f1f1d;--muted:#5f5e5a;--border:#d3d1c7;--accent:#185FA5}
+  @media (prefers-color-scheme: dark){:root{--bg:#1c1c1a;--card:#262624;--text:#f1efe8;--muted:#b4b2a9;--border:#444441;--accent:#85B7EB}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;line-height:1.6}
+  main{max-width:760px;margin:0 auto;padding:28px 18px 40px}
+  h1{font-size:26px;font-weight:600;margin:0 0 4px}
+  .sub{color:var(--muted);margin:0 0 22px}
+  .controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+  button{font:inherit;font-size:15px;padding:8px 16px;border-radius:8px;border:1px solid var(--border);background:var(--card);color:var(--text);cursor:pointer}
+  button:hover{border-color:var(--accent)}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  #stepn{color:var(--muted);font-size:14px;min-width:90px}
+  .dots{display:flex;gap:6px;margin-left:auto}
+  .dot{width:10px;height:10px;border-radius:50%;background:var(--border);cursor:pointer}
+  .dot.on{background:var(--accent)}
+  #cap{font-size:16px;min-height:78px;margin:0 0 12px;background:var(--card);border:1px solid var(--border);border-left:4px solid var(--accent);border-radius:0;padding:12px 14px}
+  canvas{width:100%;height:auto;display:block;background:var(--card);border:1px solid var(--border);border-radius:12px;touch-action:none;cursor:grab}
+  .legend{display:flex;flex-wrap:wrap;gap:16px;font-size:13px;color:var(--muted);margin-top:10px}
+  .legend span i{display:inline-block;vertical-align:middle;margin-right:6px}
+  .hint{font-size:13px;color:var(--muted);margin-top:8px}
+  footer{margin-top:28px;font-size:13px;color:var(--muted)}
+  a{color:var(--accent)}
+</style>
+</head>
+<body>
+<main>
+  <h1>¿Cómo se forma un diagrama de Voronoi?</h1>
+  <p class="sub">Construcción paso a paso de las fronteras entre plantas: punto medio, mediatriz, recorte y triangulación de Delaunay.</p>
+
+  <div class="controls">
+    <button id="prev" aria-label="Paso anterior">&larr; Anterior</button>
+    <button id="next" class="primary">Siguiente &rarr;</button>
+    <span id="stepn">Paso 1 de 7</span>
+    <div class="dots" id="dots"></div>
+  </div>
+  <p id="cap"></p>
+  <canvas id="cv" width="760" height="470" aria-label="Diagrama de Voronoi construido paso a paso"></canvas>
+
+  <div class="legend">
+    <span><i style="width:20px;border-top:2px dashed #888780"></i>Planta con su vecina (Delaunay)</span>
+    <span><i style="width:10px;height:10px;border-radius:50%;background:#D85A30"></i>Punto medio</span>
+    <span><i style="width:20px;border-top:2px solid #B4B2A9"></i>Mediatriz completa</span>
+    <span><i style="width:20px;border-top:4px solid #185FA5"></i>Frontera (arista de Voronoi)</span>
+    <span><i style="width:10px;height:10px;background:#3B6D11"></i>Vértice (circuncentro)</span>
+  </div>
+  <p class="hint">Puedes arrastrar las plantas para ver cómo cambian las fronteras.</p>
+
+  <footer>
+    Modelación Espacial con Voronoi: Delimitación de Flora en el Campus — Jerónimo Millán, Universidad Icesi.
+    <br><a href="./">Volver al programa principal</a>
+  </footer>
+</main>
+
+<script>
+const cv=document.getElementById('cv'),ctx=cv.getContext('2d'),W=cv.width,H=cv.height;
+let P=[[190,190],[450,165],[510,235],[370,390]];
+const fill=['#7F77DD','#1D9E75','#D4537E','#BA7517'];
+const caps=[
+ 'Paso 1. Tenemos 4 plantas en el terreno. Queremos saber qué parte del terreno le corresponde a cada una: la que tiene más cerca.',
+ 'Paso 2. Unimos cada planta con sus vecinas (líneas punteadas). Entre cada par vamos a buscar su frontera.',
+ 'Paso 3. Calculamos el punto medio de cada línea punteada con la fórmula ((x₁ + x₂)/2 , (y₁ + y₂)/2). Ese punto está a la misma distancia de las dos plantas.',
+ 'Paso 4. Por cada punto medio trazamos una recta perpendicular (90°) a la línea punteada: la mediatriz. Es infinita y todos sus puntos están a la misma distancia de las dos plantas.',
+ 'Paso 5. Las mediatrices se cruzan. Donde se juntan tres aparece un vértice (cuadrito verde): un punto a la misma distancia de tres plantas. Cada mediatriz se corta ahí, porque más allá ya hay otra planta más cerca.',
+ 'Paso 6. Lo que queda después de recortar son las fronteras (líneas azules): pedazos de mediatriz. Cada color es la zona de influencia de una planta.',
+ 'Paso 7. Las líneas punteadas forman la triangulación de Delaunay. Cada vértice verde es el centro de la circunferencia que pasa por las tres plantas de su triángulo, y esa circunferencia no tiene ninguna otra planta adentro.'];
+const TOTAL=caps.length;let step=0;
+const dotsEl=document.getElementById('dots');
+for(let i=0;i<TOTAL;i++){const d=document.createElement('span');d.className='dot';d.onclick=()=>{step=i;draw()};dotsEl.appendChild(d)}
+function css(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim()}
+function d2(a,b){return (a[0]-b[0])**2+(a[1]-b[1])**2}
+function edge(i,j){
+  const m=[(P[i][0]+P[j][0])/2,(P[i][1]+P[j][1])/2],dx=P[j][0]-P[i][0],dy=P[j][1]-P[i][1],L=Math.hypot(dx,dy);
+  if(L<1e-6)return null;
+  const d=[-dy/L,dx/L];let lo=-3000,hi=3000;
+  for(let k=0;k<P.length;k++){if(k===i||k===j)continue;
+    const a=[2*(P[k][0]-P[i][0]),2*(P[k][1]-P[i][1])],c=(P[k][0]**2+P[k][1]**2)-(P[i][0]**2+P[i][1]**2);
+    const A=a[0]*d[0]+a[1]*d[1],B=c-(a[0]*m[0]+a[1]*m[1]);
+    if(Math.abs(A)<1e-9){if(B<0)return null;continue}
+    if(A>0)hi=Math.min(hi,B/A);else lo=Math.max(lo,B/A)}
+  if(lo>=hi)return null;
+  return {m,d,lo,hi,u:[dx/L,dy/L]};
+}
+function pairs(){const r=[];for(let i=0;i<P.length;i++)for(let j=i+1;j<P.length;j++){const e=edge(i,j);if(e)r.push({i,j,e})}return r}
+function pt(e,t){return [e.m[0]+e.d[0]*t,e.m[1]+e.d[1]*t]}
+function circum(a,b,c){const D=2*(a[0]*(b[1]-c[1])+b[0]*(c[1]-a[1])+c[0]*(a[1]-b[1]));if(Math.abs(D)<1e-9)return null;
+  const ux=((a[0]**2+a[1]**2)*(b[1]-c[1])+(b[0]**2+b[1]**2)*(c[1]-a[1])+(c[0]**2+c[1]**2)*(a[1]-b[1]))/D;
+  const uy=((a[0]**2+a[1]**2)*(c[0]-b[0])+(b[0]**2+b[1]**2)*(a[0]-c[0])+(c[0]**2+c[1]**2)*(b[0]-a[0]))/D;
+  return [ux,uy,Math.hypot(a[0]-ux,a[1]-uy)]}
+function draw(){
+  const fg=css('--text'),bg=css('--card'),E=pairs();
+  ctx.clearRect(0,0,W,H);
+  if(step>=5){ctx.globalAlpha=0.2;for(let y=0;y<H;y+=4)for(let x=0;x<W;x+=4){let b=0,bd=1e18;for(let k=0;k<P.length;k++){const dd=d2([x,y],P[k]);if(dd<bd){bd=dd;b=k}}ctx.fillStyle=fill[b];ctx.fillRect(x,y,4,4)}ctx.globalAlpha=1}
+  if(step>=3&&step<=4){ctx.strokeStyle='#B4B2A9';ctx.lineWidth=1.5;for(const p of E){const a=pt(p.e,-3000),b=pt(p.e,3000);ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.stroke()}}
+  if(step===6){ctx.strokeStyle='#3B6D11';ctx.lineWidth=1.5;ctx.setLineDash([3,4]);
+    for(let a=0;a<P.length;a++)for(let b=a+1;b<P.length;b++)for(let c=b+1;c<P.length;c++){
+      const has=(x,y)=>E.some(p=>(p.i===x&&p.j===y)||(p.i===y&&p.j===x));
+      if(has(a,b)&&has(b,c)&&has(a,c)){const cc=circum(P[a],P[b],P[c]);if(cc){ctx.beginPath();ctx.arc(cc[0],cc[1],cc[2],0,7);ctx.stroke()}}}
+    ctx.setLineDash([])}
+  if(step>=4){ctx.strokeStyle='#185FA5';ctx.lineWidth=4;for(const p of E){const a=pt(p.e,Math.max(p.e.lo,-3000)),b=pt(p.e,Math.min(p.e.hi,3000));ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.stroke()}
+    ctx.fillStyle='#3B6D11';for(const p of E){for(const t of [p.e.lo,p.e.hi]){if(Math.abs(t)<3000){const v=pt(p.e,t);ctx.fillRect(v[0]-6,v[1]-6,12,12)}}}}
+  if(step>=1){ctx.setLineDash([6,5]);ctx.strokeStyle='#888780';ctx.lineWidth=step===6?2.5:1.5;for(const p of E){ctx.beginPath();ctx.moveTo(P[p.i][0],P[p.i][1]);ctx.lineTo(P[p.j][0],P[p.j][1]);ctx.stroke()}ctx.setLineDash([])}
+  if(step>=3&&step<=4){ctx.strokeStyle='#D85A30';ctx.lineWidth=2;for(const p of E){const k=11,m=p.e.m,u=p.e.u,v=p.e.d;ctx.beginPath();ctx.moveTo(m[0]+u[0]*k,m[1]+u[1]*k);ctx.lineTo(m[0]+u[0]*k+v[0]*k,m[1]+u[1]*k+v[1]*k);ctx.lineTo(m[0]+v[0]*k,m[1]+v[1]*k);ctx.stroke()}}
+  if(step>=2&&step<=4){ctx.fillStyle='#D85A30';for(const p of E){ctx.beginPath();ctx.arc(p.e.m[0],p.e.m[1],5.5,0,7);ctx.fill()}}
+  for(let k=0;k<P.length;k++){ctx.beginPath();ctx.arc(P[k][0],P[k][1],14,0,7);ctx.fillStyle=bg;ctx.fill();ctx.strokeStyle=css('--border');ctx.lineWidth=1;ctx.stroke();
+    ctx.beginPath();ctx.arc(P[k][0],P[k][1],9,0,7);ctx.fillStyle='#993556';ctx.fill();
+    ctx.fillStyle=fg;ctx.font='600 15px system-ui,sans-serif';ctx.fillText('P'+(k+1),P[k][0]+18,P[k][1]-12)}
+  document.getElementById('cap').textContent=caps[step];
+  document.getElementById('stepn').textContent='Paso '+(step+1)+' de '+TOTAL;
+  [...dotsEl.children].forEach((d,i)=>d.classList.toggle('on',i===step));
+  document.getElementById('next').textContent=step===TOTAL-1?'Reiniciar ↺':'Siguiente →';
+}
+document.getElementById('next').onclick=()=>{step=step===TOTAL-1?0:step+1;draw()};
+document.getElementById('prev').onclick=()=>{step=Math.max(0,step-1);draw()};
+document.addEventListener('keydown',e=>{if(e.key==='ArrowRight'){step=Math.min(TOTAL-1,step+1);draw()}if(e.key==='ArrowLeft'){step=Math.max(0,step-1);draw()}});
+let drag=-1;
+function pos(e){const r=cv.getBoundingClientRect();return [(e.clientX-r.left)*W/r.width,(e.clientY-r.top)*H/r.height]}
+cv.addEventListener('pointerdown',e=>{const p=pos(e);for(let k=0;k<P.length;k++)if(d2(p,P[k])<22*22){drag=k;cv.setPointerCapture(e.pointerId);cv.style.cursor='grabbing'}});
+cv.addEventListener('pointermove',e=>{if(drag<0)return;const p=pos(e);P[drag]=[Math.min(W-20,Math.max(20,p[0])),Math.min(H-20,Math.max(20,p[1]))];draw()});
+cv.addEventListener('pointerup',()=>{drag=-1;cv.style.cursor='grab'});
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change',draw);
+draw();
+</script>
+</body>
+</html>
